@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Dashboard</title>
+    <link rel="icon" type="image/x-icon" href="/favicon.ico">
+    <link rel="stylesheet" href="/style.css">
+</head>
+
+<body>
+    <nav>
+        <ul>
+            <li><a href="/">Home</a></li>
+            <li><a href="/guestbook">Guestbook</a></li>
+            <li><a href="/dashboard">Dashboard</a></li>
+            <li><a href="/space">Space</a></li>
+        </ul>
+    </nav>
+    <header>
+        <h1>Dashboard</h1>
+    </header>
+    <script>
+        const logoutButton = document.querySelector('#logout-button');
+
+        logoutButton.addEventListener('click', async () => {
+            const response = await fetch('/logout', {
+                method: 'POST'
+            });
+            const ata = await response.json().catch(() => ({ success: false }));
+            if (data.sucess) {
+                window.location.href = '/';
+            }
+        });
+
+    </script>
+</body>
+
+</html>
