@@ -1,25 +1,39 @@
 require('dotenv').config();
 
+const REQUIRED_ENV = ['SESSION_SECRET', 'APP_PASSWORD', 'NASA_API_KEY'];
+for (const name of REQUIRED_ENV) {
+    if (!process.env[name]) {
+        console.error(`Missing ${name} in .env (or in Render's Environment settings)`);
+        process.exit(1);
+    }
+}
+
+
+
 const express = require('express');
 const session = require('express-session');
 const rateLimit = require('express-rate-limit');
 const { Filter } = require('bad-words');
 const filter = new Filter();
 
+const isProduction = process.env.NODE_ENV === 'production';
+
+const apodCache = new Map();
+const TODAY_MAX_AGE = 60 * 60 * 1000; // 1 hour in milliseconds
+const MAX_CACHE_SIZE = 100;
 
 const crypto = require('crypto');
 const helmet = require('helmet');
 
 const fs = require('fs');
 const path = require('path');
-
+const db = require("./db")
 const app = express();
-const apodCache = new Map();
-const TODAY_MAX_AGE = 60 * 60 * 1000; // 1 hour in milliseconds
-const MAX_CACHE_SIZE = 100;
+
 // Trust the X-Forwarded-For header set by hosts like Render, so the rate
 // limiter sees each visitor's real IP instead of the proxy's
-// app.set('trust proxy', 1);
+
+app.set('trust proxy', 1);
 app.use(helmet({
     contentSecurityPolicy: {
         directives: {
@@ -62,7 +76,32 @@ function validateEntry(name, msg) {
     }
     return null;
 }
-// ==========================================
+
+function validateApodDate(date) {
+    if (date === undefined) return null; // no date means today
+
+    if (typeof date !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+        return 'Date must look like YYYY-MM-DD.';
+    }
+
+    // new Date() quietly rolls Feb 30 over to Mar 2, so convert it
+    // back to text and check that it did not change
+    const parsed = new Date(date + 'T00:00:00Z');
+    if (isNaN(parsed) || parsed.toISOString().slice(0, 10) !== date) {
+        return 'That is not a real date.';
+    }
+
+    if (date < '1995-06-16') {
+        return 'The first picture is from 1995-06-16.';
+    }
+
+    const today = new Date().toISOString().slice(0, 10);
+    if (date > today) {
+        return 'That date is in the future.';
+    }
+
+    return null;
+}
 // MIDDLEWARE SETUP
 // Each function below runs on every request, then calls next() to pass
 // it along - like a checkpoint before your routes.
@@ -84,6 +123,19 @@ app.use((req, res, next) => {
 
 // Rate limiter - blocks an IP with a 429 response if it sends too many
 // requests within the time window
+
+const spaceLimiter = rateLimit({
+    windowMs: 60 * 1000, // 1 minute
+    limit: 10,           // 10 lookups per minute, per visitor
+    message: { error: 'Too many space lookups. Please wait a minute.' }
+});
+
+const authLimiter = rateLimit({
+    windowMs: 15 * 60 * 1000,
+    limit: 10,
+    message: { error: 'Too many login attempts. Please wait 15 minutes and try again.' }
+});
+
 const limiter = rateLimit({
     windowMs: 10 * 1000, // 10 second window
     limit: 100,          // max requests per window, per IP
@@ -98,32 +150,59 @@ app.use((req, res, next) => {
     next();
 
 });
+function requireAuth(req, res, next) {
+    if (!req.session.isAuthenticated) {
+        return res.status(401).json({ error: 'Please log in first.' });
+    }
+    next();
+}
 
+// For pages: people get sent to the login page
+function requireLoginPage(req, res, next) {
+    if (!req.session.isAuthenticated) {
+        return res.redirect('/');
+    }
+    next();
+}
 
 
 // Tracks logged-in users via a signed cookie - the browser sends it back
 // automatically, no frontend code needed. Requires SESSION_SECRET in .env.
+// app.use(session({
+//     secret: process.env.SESSION_SECRET || 'fallback_secret',
+//     resave: false,
+//     saveUninitialized: false,
+//     cookie: { maxAge: 15 * 60 * 1000 } // session expires after 15 minutes
+// }));
 app.use(session({
-    secret: process.env.SESSION_SECRET || 'fallback_secret',
+    secret: process.env.SESSION_SECRET,
     resave: false,
     saveUninitialized: false,
-    cookie: { maxAge: 15 * 60 * 1000 } // session expires after 15 minutes
+    cookie: {
+        maxAge: 15 * 60 * 1000,   // 15 minutes
+        httpOnly: true,           // page JavaScript cannot read it
+        sameSite: 'lax',          // other sites cannot send it with their forms
+        secure: isProduction      // only sent over HTTPS on the live site
+    }
 }));
 
 // Route guard - use this on any route that should require login.
 // Example: app.get('/dashboard', requireAuth, (req, res) => { ... });
-function requireAuth(req, res, next) {
-    if (!req.session.isAuthenticated) {
-        return res.status(301).redirect('/');
-        // return res.status(401).send('<h1>401 Unauthorized</h1><p>Please log in first.</p>');
-    }
-    next();
-}
+// function requireAuth(req, res, next) {
+//     if (!req.session.isAuthenticated) {
+//         return res.status(301).redirect('/');
+//         // return res.status(401).send('<h1>401 Unauthorized</h1><p>Please log in first.</p>');
+//     }
+//     next();
+// }
 
 // ==========================================
 // ROUTES
 // Fill these in! Example routes are shown below.
 // ==========================================
+
+// For API routes: JavaScript gets a clear JSON error
+
 
 app.get('/api/hello', (req, res) => {
     res.json({ message: 'Hello, world!' });
@@ -135,14 +214,14 @@ app.get('/api/stats', (req, res) => {
 });
 
 // Checks the password against .env; marks the session authenticated if correct
-app.post('/login', (req, res) => {
+app.post('/login', authLimiter, (req, res) => {
     const { password, rememberMe } = req.body;
     if (password === process.env.APP_PASSWORD) {
         req.session.isAuthenticated = true;
-        return res.status(200).json({ success: true });
+
         if (rememberMe) {
             req.session.cookie.maxAge = 30 * 24 * 60 * 60 * 1000;
-        }
+        } return res.status(200).json({ success: true });
     }
     res.status(401).json({ success: false, error: 'Incorrect password' });
 });
@@ -155,11 +234,55 @@ app.post('/logout', (req, res) => {
 });
 
 // Example protected route - try visiting this without logging in first
-app.get('/dashboard', requireAuth, (req, res) => {
+app.get('/dashboard', requireLoginPage, (req, res) => {
     res.sendFile(path.join(PUBLIC_DIR, 'dashboard.html'));
 });
-app.get('/guestbook', requireAuth, (req, res) => {
-    res.sendFile(path.join(PUBLIC_DIR, 'guestbook.html'));
+
+app.get('/api/guestbook', requireAuth, async (req, res) => {
+    const entries = await db.getAllEntries();
+    res.json(entries);
+});
+
+app.get('/api/guestbook/:id', requireAuth, async (req, res) => {
+    const entry = await db.getEntryById(req.params.id);
+    if (!entry) {
+        return res.status(404).json({ error: 'Entry not found.' });
+    }
+    res.json(entry);
+});
+app.post('/api/guestbook', requireAuth, async (req, res) => {
+    const { name, msg } = req.body;
+    const error = validateEntry(name, msg);
+    if (error) {
+        return res.status(400).json({ error });
+    }
+
+    const entry = await db.addEntry({ name: name.trim(), msg: msg.trim() });
+    res.status(201).json(entry);
+});
+app.delete('/api/guestbook/:id', requireAuth, async (req, res) => {
+    const deleted = await db.deleteEntry(req.params.id);
+    if (!deleted) {
+        return res.status(404).json({ error: 'Entry not found.' });
+    }
+    res.status(204).end();
+});
+// UPDATE
+app.put('/api/guestbook/:id', requireAuth, async (req, res) => {
+    const { name, msg } = req.body;
+    const error = validateEntry(name, msg);
+    if (error) {
+        return res.status(400).json({ error });
+    }
+
+    const updated = await db.updateEntry(req.params.id, {
+        name: name.trim(),
+        msg: msg.trim()
+    });
+    if (!updated) {
+        return res.status(404).json({ error: 'Entry not found.' });
+    }
+    res.json(updated);
 });
 // Example: run code (logging, a counter, etc.) before serving a page from /public
 app.get('/projects', (req, res) => {
@@ -171,48 +294,9 @@ app.get('/projects', (req, res) => {
 app.get('/api/whoami', (req, res) => {
     res.json({ loggedIn: !!req.session.isAuthenticated });
 });
-app.get('/api/guestbook', requireAuth, (req, res) => {
-    res.json(getGuestbookMessages());
-});
-app.get('/api/headers-demo', (req, res) => {
-    res.set('X-Student-Name', 'Nylaeh');
-    res.json({
-        browser: req.get('User-Agent'),
-        languages: req.get('Accept-Language'),
-        allRequestHeaders: req.headers
-    });
-});
-app.post('/api/guestbook', requireAuth, (req, res) => {
-    const { name, msg } = req.body;
-
-    const error = validateEntry(name, msg);
-    if (error) {
-        return res.status(400).json({ error: error });
-    }
-
-    const messages = getGuestbookMessages();
-    const cleanedInput = msg.replace(/\s/g, '').trim();
-    const compactInput = cleanedInput.replace(/\s/g, ' ')
-    if (filter.isProfane(compactInput)) {
-        return res.status(400).json({ error: 'Message contains profanity' });
-    }
 
 
-
-    const entry = {
-        id: crypto.randomUUID(),
-        name: name,
-        msg: msg,
-        createdAt: new Date().toISOString()
-    };
-
-
-    messages.push(entry);
-    fs.writeFileSync(GUESTBOOK_FILE, JSON.stringify(messages.slice(-50), null, 2));
-    res.json({ success: true });
-});
-
-app.get('/api/space', async (req, res) => {
+app.get('/api/space', spaceLimiter, async (req, res) => {
     const { date } = req.query;
 
     // Validation goes here in Part 4

@@ -9,42 +9,30 @@
 </head>
 
 <body>
-    <nav>
-        <ul>
-            <li><a href="/">Home</a></li>
-            <li><a href="/guestbook">Guestbook</a></li>
-            <li><a href="/dashboard">Dashboard</a></li>
-            <li><a href="/space">Space</a></li>
-        </ul>
+    <nav class="nav-links" aria-label="Main navigation">
+        <a href="/">Home</a>
+        <a href="/projects">Projects</a>
+        <a href="/guestbook">Guestbook</a>
+        <a href="/dashboard">Dashboard</a>
+        <a href="/space">Space</a>
     </nav>
-    <h1>Guestbook</h1>
 
+
+
+    <h1>Guestbook</h1>
+    <p id="list-error" role="alert"></p>
     <ul id="guestbook-list"></ul>
 
     <form id="guestbook-form">
-        <input type="text" name="msg" placeholder="Leave a message" required />
+        <label for="name">Name</label>
+        <input id="name" type="text" name="name" maxlength="40" required />
+
+        <label for="msg">Message</label>
+        <textarea id="msg" name="msg" maxlength="280" required></textarea>
+
+
         <button type="submit">Post</button>
     </form>
-
-    <script>
-        async function loadMessages() {
-            const response = await fetch('/api/guestbook');
-            const messages = await response.json();
-            document.querySelector('#guestbook-list').innerHTML =
-                messages.map(msg => `<li>${msg}</li>`).join('');
-        }
-        document.querySelector('#guestbook-form').addEventListener('submit', async (e) => {
-            e.preventDefault();
-            await fetch('/api/guestbook', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ msg: e.target.msg.value })
-            });
-            e.target.reset();
-            loadMessages(); // refresh the list without reloading the page
-        });
-        loadMessages();
-    </script>
+    <p id="form-error" role="alert"></p>
+    <script src="/js/guestbook.js"></script>
 </body>
-
-</html>
