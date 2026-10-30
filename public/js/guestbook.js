@@ -1,136 +1,185 @@
-async function deleteEntry(id) {
-    if (!confirm('Delete this message?')) return;
-    const listError = document.querySelector('#list-error');
+const list = document.querySelector('#guestbook-list');
+const listError = document.querySelector('#list-error');
+
+// Who is logged in. Filled in by loadCurrentUser().
+let currentUser = null;
+
+// Asks the server who we are, so we know which entries we can change
+async function loadCurrentUser() {
+    try {
+        const response = await fetch('/api/whoami');
+        const data = await response.json();
+        if (data.loggedIn) {
+            currentUser = data;
+            document.querySelector('#current-user').textContent = data.username;
+        }
+    } catch (err) {
+        // If this fails, we just won't show Edit and Delete buttons
+    }
+}
+
+// True if this user wrote the entry, or is an admin.
+// This only decides which buttons to SHOW. The server checks again.
+function canEdit(entry) {
+    if (!currentUser) return false;
+    return entry.authorId === currentUser.userId || currentUser.role === 'admin';
+}
+
+// Gets every entry from the server and draws the list, newest first
+async function loadMessages() {
+    listError.textContent = '';
 
     try {
-        const response = await fetch(`/api/guestbook/${encodeURIComponent(id)}`, {
-            method: 'DELETE'
-        });
+        const response = await fetch('/api/guestbook');
+        const data = await response.json().catch(() => ({}));
+
         if (!response.ok) {
-            const data = await response.json().catch(() => ({}));
-            listError.textContent = data.error || 'Could not delete that message.';
+            listError.textContent = data.error || 'Could not load messages.';
             return;
         }
-        loadMessages();
+
+        list.innerHTML = ''; // clearing with an empty string is safe
+
+        // Newest first: copy the array, then reverse the copy
+        [...data].reverse().forEach(entry => {
+            list.append(makeEntry(entry));
+        });
     } catch (err) {
         listError.textContent = 'Could not reach the server. Check your connection.';
     }
 }
 
-async function saveEdit(entry, newMsg) {
-    const listError = document.querySelector('#list-error');
+// Builds one <li> for an entry. All text goes in with textContent.
+function makeEntry(entry) {
+    const li = document.createElement('li');
 
-    try {
-        const response = await fetch(`/api/guestbook/${encodeURIComponent(entry.id)}`, {
-            method: 'PUT',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ name: entry.name, msg: newMsg })
-        });
-        if (!response.ok) {
-            const data = await response.json().catch(() => ({}));
-            listError.textContent = data.error || 'Could not save your changes.';
-            return;
-        }
-        loadMessages();
-    } catch (err) {
-        listError.textContent = 'Could not reach the server. Check your connection.';
+    const name = document.createElement('strong');
+    name.textContent = entry.name;
+
+    const date = document.createElement('small');
+    date.textContent = new Date(entry.createdAt).toLocaleString();
+    if (entry.updatedAt) date.textContent += ' (edited)';
+
+    const msg = document.createElement('p');
+    msg.textContent = entry.msg;
+
+    li.append(name, ' ', date, msg);
+
+    if (canEdit(entry)) {
+        const editButton = document.createElement('button');
+        editButton.type = 'button';
+        editButton.textContent = 'Edit';
+        editButton.addEventListener('click', () => startEditing(li, entry));
+
+        const deleteButton = document.createElement('button');
+        deleteButton.type = 'button';
+        deleteButton.textContent = 'Delete';
+        deleteButton.addEventListener('click', () => deleteEntry(entry));
+
+        li.append(editButton, ' ', deleteButton);
     }
+
+    return li;
 }
-function startEdit(li, entry) {
-    li.innerHTML = ''; // clearing with an empty string is safe
+
+// Swaps an entry for a small edit form
+function startEditing(li, entry) {
+    li.innerHTML = '';
 
     const textarea = document.createElement('textarea');
-    textarea.value = entry.msg; // .value is safe, like textContent
     textarea.maxLength = 280;
+    textarea.value = entry.msg;
 
     const saveButton = document.createElement('button');
     saveButton.type = 'button';
     saveButton.textContent = 'Save';
-    saveButton.addEventListener('click', () => saveEdit(entry, textarea.value));
 
     const cancelButton = document.createElement('button');
     cancelButton.type = 'button';
     cancelButton.textContent = 'Cancel';
-    cancelButton.addEventListener('click', loadMessages);
 
-    li.append(textarea, saveButton, cancelButton);
+    const error = document.createElement('p');
+    error.setAttribute('role', 'alert');
+
+    saveButton.addEventListener('click', () => saveEdit(entry, textarea.value, error));
+    cancelButton.addEventListener('click', () => li.replaceWith(makeEntry(entry)));
+
+    li.append(textarea, saveButton, ' ', cancelButton, error);
     textarea.focus();
 }
 
-async function loadMessages() {
-    const listError = document.querySelector('#list-error');
-    listError.textContent = ''; // Clear any old error
+// UPDATE: sends the new message with PUT
+async function saveEdit(entry, newMsg, errorBox) {
+    errorBox.textContent = '';
+
     try {
-        const response = await fetch('/api/guestbook');
-        const entries = await response.json();
-
-        const list = document.querySelector('#guestbook-list');
-        list.innerHTML = ''; // Clearing with an empty string is safe
-
-        // Newest first: copy the array, then reverse the copy
-        [...entries].reverse().forEach(entry => {
-            const li = document.createElement('li');
-
-            const name = document.createElement('strong');
-            name.textContent = entry.name;
-
-            const date = document.createElement('small');
-            date.textContent = new Date(entry.createdAt).toLocaleString();
-
-            const msg = document.createElement('p');
-            msg.textContent = entry.msg;
-
-            li.append(name, ' ', date, msg);
-            if (entry.updatedAt) {
-                const edited = document.createElement('small');
-                edited.textContent = ' (edited)';
-                li.append(edited);
-            }
-
-            const editButton = document.createElement('button');
-            editButton.type = 'button';
-            editButton.textContent = 'Edit';
-            editButton.addEventListener('click', () => startEdit(li, entry));
-
-            const deleteButton = document.createElement('button');
-            deleteButton.type = 'button';
-            deleteButton.textContent = 'Delete';
-            deleteButton.addEventListener('click', () => deleteEntry(entry.id));
-
-            li.append(editButton, deleteButton);
-            list.append(li);
+        const response = await fetch(`/api/guestbook/${entry.id}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ msg: newMsg })
         });
-    } catch (error) {
-        listError.textContent = 'Failed to load messages. Please try again later.';
-    }
 
+        if (!response.ok) {
+            const data = await response.json().catch(() => ({}));
+            errorBox.textContent = data.error || 'Could not save. Please try again.';
+            return;
+        }
+
+        loadMessages();
+    } catch (err) {
+        errorBox.textContent = 'Could not reach the server. Check your connection.';
+    }
 }
 
+// DELETE: asks first, then removes the entry
+async function deleteEntry(entry) {
+    if (!confirm('Delete this message?')) return;
+    listError.textContent = '';
 
+    try {
+        const response = await fetch(`/api/guestbook/${entry.id}`, { method: 'DELETE' });
+
+        if (!response.ok) {
+            const data = await response.json().catch(() => ({}));
+            listError.textContent = data.error || 'Could not delete. Please try again.';
+            return;
+        }
+
+        loadMessages();
+    } catch (err) {
+        listError.textContent = 'Could not reach the server. Check your connection.';
+    }
+}
+
+// CREATE: sends a new entry, then redraws the list
 document.querySelector('#guestbook-form').addEventListener('submit', async (e) => {
     e.preventDefault();
     const errorBox = document.querySelector('#form-error');
-    errorBox.textContent = ''; // Clear any old error
+    errorBox.textContent = '';
+
     try {
         const response = await fetch('/api/guestbook', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
-                name: document.querySelector('#name').value,
-                msg: document.querySelector('#msg').value
+                msg: document.querySelector('#msg').value,
+                website: document.querySelector('#website').value
             })
         });
 
         if (!response.ok) {
             const data = await response.json().catch(() => ({}));
             errorBox.textContent = data.error || 'Something went wrong. Please try again.';
-            return; // Stop here, and keep what the user typed
+            return; // keep what the user typed
         }
-    } catch (error) {
-        errorBox.textContent = 'Something went wrong. Please try again.';
+    } catch (err) {
+        errorBox.textContent = 'Could not reach the server. Check your connection.';
         return;
     }
+
     e.target.reset();
     loadMessages();
 });
-loadMessages();
+
+// Find out who we are first, so the right buttons show up
+loadCurrentUser().then(loadMessages);

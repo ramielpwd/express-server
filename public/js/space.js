@@ -47,4 +47,4 @@ form.addEventListener('submit', (e) => {
     loadPicture(dateInput.value);
 });
 
-loadPicture();
+loadPicture(); // show the latest picture when the page opens

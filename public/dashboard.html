@@ -3,38 +3,26 @@
 
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Dashboard</title>
-    <link rel="icon" type="image/x-icon" href="/favicon.ico">
-    <link rel="stylesheet" href="/style.css">
+    <link rel="stylesheet" href="/styles.css">
 </head>
 
 <body>
     <nav>
-        <ul>
-            <li><a href="/">Home</a></li>
-            <li><a href="/guestbook">Guestbook</a></li>
-            <li><a href="/dashboard">Dashboard</a></li>
-            <li><a href="/space">Space</a></li>
-        </ul>
+        <a href="/">Home</a>
+        <a href="/guestbook">Guestbook</a>
+        <a href="/space">Space</a>
+        <a href="/dashboard">Dashboard</a>
     </nav>
-    <header>
-        <h1>Dashboard</h1>
-    </header>
-    <script>
-        const logoutButton = document.querySelector('#logout-button');
 
-        logoutButton.addEventListener('click', async () => {
-            const response = await fetch('/logout', {
-                method: 'POST'
-            });
-            const ata = await response.json().catch(() => ({ success: false }));
-            if (data.sucess) {
-                window.location.href = '/';
-            }
-        });
+    <h1>Admin dashboard</h1>
+    <p>Only admins can see this page.</p>
+    <p>Visitors so far: <span id="visitor-count">...</span></p>
 
-    </script>
+    <button id="logout-button" type="button">Log out</button>
+
+    <script src="/js/dashboard.js"></script>
 </body>
 
 </html>

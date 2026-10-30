@@ -4,38 +4,43 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Express Server</title>
-    <link rel="stylesheet" href="/style.css">
+    <title>Home</title>
+    <link rel="stylesheet" href="/styles.css">
 </head>
 
 <body>
     <nav>
-        <ul>
-            <li><a href="/">Home</a></li>
-            <li><a href="/guestbook">Guestbook</a></li>
-            <li><a href="/dashboard">Dashboard</a></li>
-            <li><a href="/space">Space</a></li>
-        </ul>
+        <a href="/">Home</a>
+        <a href="/guestbook">Guestbook</a>
+        <a href="/space">Space</a>
+        <a href="/dashboard">Dashboard</a>
     </nav>
-    <h1>Express Server</h1>
-    <p>Welcome to the Express server!</p>
-    <p id="status">
-    </p>
+
+    <h1 id="welcome">Welcome!</h1>
+
     <div id="login-section" hidden>
-        <h2>Login</h2>
-        <form id="login-form" action="/login" method="post">
+        <h2>Log in</h2>
+        <form id="login-form">
+            <label for="username">Username</label>
+            <input id="username" name="username" type="text" autocomplete="username" required>
+
             <label for="password">Password</label>
-            <input id="password" name="password" type="password" required>
-            <label><input type="checkbox" name="rememberMe" /> Remember me</label>
+            <input id="password" name="password" type="password" autocomplete="current-password" required>
+
+            <label><input type="checkbox" name="rememberMe"> Remember me</label>
+
             <button type="submit">Log in</button>
         </form>
-        <p id="login-message" role="status"></p>
+        <p id="login-message" role="alert"></p>
+        <p>New here? <a href="/register">Make an account</a></p>
     </div>
-    <form action="/logout" method="get">
-        <button type="submit">Log Out</button>
-    </form>
-    <script src="js/login.js"></script>
-    <script src="js/logout.js"></script>
+
+    <div id="user-section" hidden>
+        <p><a href="/guestbook">Go to the guestbook</a></p>
+        <button id="logout-button" type="button">Log out</button>
+    </div>
+
+    <script src="/js/index.js"></script>
 </body>
 
 </html>
